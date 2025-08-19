@@ -10,10 +10,10 @@ from transformers import (
 from peft import LoraConfig, get_peft_model
 from transformers import Trainer
 
-model_name = "facebook/opt-350m"
+model_name = "meta-llama/Llama-2-7b-hf"
 dataset = load_dataset("wikitext", "wikitext-2-raw-v1")
 tokenizer = AutoTokenizer.from_pretrained(model_name)
-
+tokenizer.pad_token = tokenizer.eos_token
 
 def tokenize_function(examples):
     return tokenizer(
@@ -25,7 +25,7 @@ tokenized_datasets = dataset.map(
     tokenize_function, batched=True, remove_columns=["text"]
 )
 
-model = AutoModelForCausalLM.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.bfloat16)
 
 peft_config = LoraConfig(
     r=8,
@@ -40,13 +40,16 @@ model = get_peft_model(model, peft_config)
 
 training_args = TrainingArguments(
     output_dir="./lora-opt-reg",
-    per_device_train_batch_size=8,
-    per_device_eval_batch_size=8,
+    per_device_train_batch_size=1,
+    per_device_eval_batch_size=2,
+    gradient_accumulation_steps=8,
     num_train_epochs=3,
     learning_rate=2e-4,
-    save_strategy="epoch",
+    save_strategy="steps",   # save by step count, not epoch
+    save_steps=50,           # save every 50 steps
+    save_total_limit=1,      # keep only the most recent checkpoint
     logging_steps=50,
-    bf16=torch.cuda.is_available(),
+    fp16=torch.cuda.is_available(),
     push_to_hub=False,
 )
 
