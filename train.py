@@ -1,16 +1,28 @@
 import torch
 from datasets import load_dataset
-from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments, DataCollatorForLanguageModeling
+from transformers import (
+    AutoTokenizer,
+    AutoModelForCausalLM,
+    Trainer,
+    TrainingArguments,
+    DataCollatorForLanguageModeling,
+)
 from peft import LoraConfig, get_peft_model
 
 model_name = "facebook/opt-350m"
 dataset = load_dataset("wikitext", "wikitext-2-raw-v1")
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 
-def tokenize_function(examples):
-    return tokenizer(examples["text"], truncation=True, padding="max_length", max_length=256)
 
-tokenized_datasets = dataset.map(tokenize_function, batched=True, remove_columns=["text"])
+def tokenize_function(examples):
+    return tokenizer(
+        examples["text"], truncation=True, padding="max_length", max_length=256
+    )
+
+
+tokenized_datasets = dataset.map(
+    tokenize_function, batched=True, remove_columns=["text"]
+)
 
 model = AutoModelForCausalLM.from_pretrained(model_name)
 
