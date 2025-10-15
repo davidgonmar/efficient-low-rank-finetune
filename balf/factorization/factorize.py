@@ -440,6 +440,13 @@ def collect_activation_cache(model: nn.Module, data, keys):
             it += 1
             if isinstance(batch, (list, tuple)):
                 model(_move(batch[0], device))
+            elif isinstance(batch, torch.Tensor):
+                model(_move(batch, device))
+            elif isinstance(batch, dict):
+                model(
+                    input_ids=_move(batch["input_ids"], device),
+                    attention_mask=_move(batch["attention_mask"], device),
+                )
             else:
                 raise ValueError(
                     "Data should be a tensor or a tuple/list (as in an ImageFolder dataset)"
