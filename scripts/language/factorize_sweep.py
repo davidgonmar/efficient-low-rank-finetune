@@ -103,10 +103,10 @@ if args.dataset == "wikitext2":
     eval_texts = load_dataset("wikitext", "wikitext-2-raw-v1", split="test")["text"]
     calib_texts = load_dataset("wikitext", "wikitext-2-raw-v1", split="train")["text"]
 else:
-    eval_texts = load_dataset("ptb_text_only", "penn_treebank", split="validation")[
+    eval_texts = load_dataset("ptb_text_only", "penn_treebank", split="validation", trust_remote_code=True)[
         "sentence"
     ]
-    calib_texts = load_dataset("ptb_text_only", "penn_treebank", split="train")[
+    calib_texts = load_dataset("ptb_text_only", "penn_treebank", split="train", trust_remote_code=True)[
         "sentence"
     ]
 

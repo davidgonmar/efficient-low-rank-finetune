@@ -44,7 +44,7 @@ def main():
     for s in series:
         plt.plot(s["flops_x"], s["ppl_y"], marker="o", label=s["label"])
     plt.xscale("linear")
-    plt.yscale("log")  # Perplexity scale
+    #plt.yscale("log")  # Perplexity scale
     plt.xlabel("FLOPs ratio")
     plt.ylabel("Perplexity (log scale)")
     plt.title(f"{args.title} vs FLOPs")

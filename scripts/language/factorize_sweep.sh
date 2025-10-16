@@ -46,18 +46,6 @@ mkdir -p "${RES_PRETRAIN_ENERGY_DIR}" \
          "${RES_PRETRAIN_PARAMS_DIR}" \
          "${RES_REGULARIZED_PARAMS_DIR}"
 
-# ---------------------
-# Energy-SVD sweeps
-# ---------------------
-python "${SCRIPT_DIR}/factorize_sweep.py" \
-  --model_name "${MODEL_PRETRAIN_IN}" \
-  --results_dir "${RES_PRETRAIN_ENERGY_DIR}" \
-  --dataset "${DATASET}" \
-  --seq_len "${SEQ_LEN}" \
-  --batch_size "${BATCH_SIZE}" \
-  --calib_size "${CALIB_SIZE}" \
-  --mode energy \
-  --seed "${SEED}"
 
 python "${SCRIPT_DIR}/factorize_sweep.py" \
   --model_name "${MODEL_REGULARIZED_IN}" \
@@ -67,29 +55,6 @@ python "${SCRIPT_DIR}/factorize_sweep.py" \
   --batch_size "${BATCH_SIZE}" \
   --calib_size "${CALIB_SIZE}" \
   --mode energy \
-  --seed "${SEED}"
-
-# ---------------------
-# BALF (auto-Params) sweeps
-# ---------------------
-python "${SCRIPT_DIR}/factorize_sweep.py" \
-  --model_name "${MODEL_PRETRAIN_IN}" \
-  --results_dir "${RES_PRETRAIN_PARAMS_DIR}" \
-  --dataset "${DATASET}" \
-  --seq_len "${SEQ_LEN}" \
-  --batch_size "${BATCH_SIZE}" \
-  --calib_size "${CALIB_SIZE}" \
-  --mode params_auto \
-  --seed "${SEED}"
-
-python "${SCRIPT_DIR}/factorize_sweep.py" \
-  --model_name "${MODEL_REGULARIZED_IN}" \
-  --results_dir "${RES_REGULARIZED_PARAMS_DIR}" \
-  --dataset "${DATASET}" \
-  --seq_len "${SEQ_LEN}" \
-  --batch_size "${BATCH_SIZE}" \
-  --calib_size "${CALIB_SIZE}" \
-  --mode params_auto \
   --seed "${SEED}"
 
 # ---------------------
