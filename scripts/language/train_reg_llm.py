@@ -40,8 +40,10 @@ def tokenize_function_factory(tokenizer, max_length):
 @torch.no_grad()
 def add_lora_nuclear_reg_grads(model, reg_lambda: float, eps: float = 1e-12):
     """
-    Adds gradients corresponding to nuclear-norm regularization for layers that have LoRA adapters.
-    Assumes modules may have attributes: weight, lora_A.default, lora_B.default, and optional 'scaling'.
+    Nuclear/Frobenius ratio regularization for modules with LoRA.
+    Fixed:
+      - grads are applied to the actual A/B parameters (no detached copies)
+      - base weight grad is UNscaled; LoRA grads are scaled
     """
     for m in model.modules():
         w = getattr(m, "weight", None)
@@ -53,36 +55,40 @@ def add_lora_nuclear_reg_grads(model, reg_lambda: float, eps: float = 1e-12):
         if lora_A is None or lora_B is None:
             continue
 
-        A = lora_A.weight.bfloat16()
-        B = lora_B.weight.bfloat16()
+        # Actual trainable params (no dtype/device changes)
+        A = lora_A.weight
+        B = lora_B.weight
 
+        # LoRA scaling
         scaling = 1.0
         if hasattr(m, "scaling"):
             s = getattr(m, "scaling")
             scaling = float(s["default"] if isinstance(s, dict) else s)
 
+        # Effective weight
         W = w + (B @ A) * scaling
+
+        # Nuclear/Frobenius ratio and its gradient wrt W
         f = torch.linalg.norm(W, ord="fro") + eps
         UV = polar_express(W)
-        nuc = torch.trace(W @ UV.T.bfloat16())
-        G = (((UV / f) - (nuc / (f**3)) * W) * scaling).bfloat16()
+        nuc = torch.trace(W @ UV.T)
+        G = (UV / f) - (nuc / (f**3)) * W  # d(nuc/f)/dW
 
-        dW = G
-        dB = G @ A.T
-        dA = B.T @ G
-
+        # Chain rule to LoRA params (scaled), base weight unscaled
         if w.requires_grad:
             if w.grad is None:
                 w.grad = torch.zeros_like(w)
-            w.grad.add_(reg_lambda * dW)
+            w.grad.add_(reg_lambda * G)
+
         if A.requires_grad:
             if A.grad is None:
                 A.grad = torch.zeros_like(A)
-            A.grad.add_(reg_lambda * dA)
+            A.grad.add_(reg_lambda * (B.T @ G) * scaling)
+
         if B.requires_grad:
             if B.grad is None:
                 B.grad = torch.zeros_like(B)
-            B.grad.add_(reg_lambda * dB)
+            B.grad.add_(reg_lambda * (G @ A.T) * scaling)
 
 
 class LoRaNuclearRegCallback(TrainerCallback):
@@ -220,6 +226,8 @@ def main():
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         num_train_epochs=args.num_train_epochs,
         learning_rate=args.learning_rate,
+        lr_scheduler_type="constant",  # <- constant LR (no decay)
+        warmup_steps=0,  # ensure no warmup
         save_strategy="no",  # no adapter checkpoints
         save_steps=args.save_steps,  # used only by our callback
         save_total_limit=args.save_total_limit,

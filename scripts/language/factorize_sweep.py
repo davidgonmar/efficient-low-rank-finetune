@@ -63,13 +63,15 @@ def perplexity(model, dataloader, device=None, ignore_inf=True):
             continue
         shift_logits = logits[:, :-1, :].contiguous()
         shift_labels = input_ids[:, 1:].contiguous()
+        # print(shift_logits.shape, shift_labels.shape)
         loss = loss_fct(
             shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)
         )
         nll_tokens.append(loss)
         total_tokens += shift_labels.numel()
     if total_tokens == 0:
-        raise RuntimeError("No valid tokens processed")
+        print("No valid tokens processed")
+        return float("inf")
     mean_nll = torch.cat(nll_tokens, dim=0).mean()
     return math.exp(mean_nll.item())
 
@@ -80,7 +82,7 @@ parser.add_argument("--results_dir", required=True)
 parser.add_argument("--dataset", choices=["wikitext2", "ptb"], default="wikitext2")
 parser.add_argument("--seq_len", type=int, default=2048)
 parser.add_argument("--batch_size", type=int, default=4)
-parser.add_argument("--calib_size", type=int, default=128)
+parser.add_argument("--calib_size", type=int, default=256)
 parser.add_argument(
     "--mode",
     default="flops_auto",
@@ -103,12 +105,12 @@ if args.dataset == "wikitext2":
     eval_texts = load_dataset("wikitext", "wikitext-2-raw-v1", split="test")["text"]
     calib_texts = load_dataset("wikitext", "wikitext-2-raw-v1", split="train")["text"]
 else:
-    eval_texts = load_dataset("ptb_text_only", "penn_treebank", split="validation", trust_remote_code=True)[
-        "sentence"
-    ]
-    calib_texts = load_dataset("ptb_text_only", "penn_treebank", split="train", trust_remote_code=True)[
-        "sentence"
-    ]
+    eval_texts = load_dataset(
+        "ptb_text_only", "penn_treebank", split="validation", trust_remote_code=True
+    )["sentence"]
+    calib_texts = load_dataset(
+        "ptb_text_only", "penn_treebank", split="train", trust_remote_code=True
+    )["sentence"]
 
 eval_tok_ids = tok("\n\n".join(eval_texts), return_tensors="pt").input_ids.squeeze(0)
 calib_tok_ids = tok("\n\n".join(calib_texts), return_tensors="pt").input_ids.squeeze(0)

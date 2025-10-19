@@ -23,15 +23,15 @@ python "${SCRIPT_DIR}/train_reg_llm.py" \
   --max_length 2048 \
   --output_dir "${ADAPTER_DIR}" \
   --merged_output_dir "${MERGED_DIR}" \
-  --num_train_epochs 1 \
-  --learning_rate 3e-4 \
+  --num_train_epochs 4 \
+  --learning_rate 2e-4 \
   --per_device_train_batch_size 1 \
   --per_device_eval_batch_size 1 \
-  --gradient_accumulation_steps 1 \
-  --lora_r 8 \
-  --lora_alpha 16 \
-  --lora_dropout 0.05 \
-  --reg_lambda 3e-1 \
+  --gradient_accumulation_steps 4 \
+  --lora_r 32 \
+  --lora_alpha 64 \
+  --lora_dropout 0.00 \
+  --reg_lambda 0.0003 \
   --target_modules "q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj" \
   --save_steps 200 \
   --save_total_limit 1 \
