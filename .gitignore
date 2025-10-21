@@ -168,4 +168,4 @@ tfg/
 *.safetensors
 *.bin
 
-/results
+results/
