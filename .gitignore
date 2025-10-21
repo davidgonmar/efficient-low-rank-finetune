@@ -167,3 +167,5 @@ tfg/
 
 *.safetensors
 *.bin
+
+/results
