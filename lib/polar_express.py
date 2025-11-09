@@ -15,7 +15,7 @@ coeffs_list = [
     (1.875, -1.25, 0.375),  # subsequent coeffs equal this numerically
 ]
 
-# safety factor for numerical stability (but exclude last polynomial )
+# safety factor for numerical stability (but exclude last polynomial)
 coeffs_list = [
     (a / 1.01, b / 1.01**3, c / 1.01**5) for (a, b, c) in coeffs_list[:-1]
 ] + [coeffs_list[-1]]
@@ -40,4 +40,4 @@ def polar_express(G: torch.Tensor, steps=6) -> torch.Tensor:
         X = a * X + B @ X  # X <- aX + bX ˆ3 + cX ˆ5
     if G.size(-2) > G.size(-1):
         X = X.mT
-    return X.float()
+    return X.to(G.dtype)

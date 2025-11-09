@@ -1,6 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
 import argparse
 import os
 import copy
@@ -22,7 +19,7 @@ from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 from peft import LoraConfig, get_peft_model
 
-from lib.polar_express import polar_express
+from lib.regularizer import low_rank_reg_loss
 
 
 def tokenize_function_factory(tokenizer, max_length):
@@ -37,58 +34,6 @@ def tokenize_function_factory(tokenizer, max_length):
     return fn
 
 
-@torch.no_grad()
-def add_lora_nuclear_reg_grads(model, reg_lambda: float, eps: float = 1e-12):
-    """
-    Nuclear/Frobenius ratio regularization for modules with LoRA.
-    Fixed:
-      - grads are applied to the actual A/B parameters (no detached copies)
-      - base weight grad is UNscaled; LoRA grads are scaled
-    """
-    for m in model.modules():
-        w = getattr(m, "weight", None)
-        if w is None or not isinstance(w, torch.Tensor) or w.dim() < 2:
-            continue
-
-        lora_A = getattr(getattr(m, "lora_A", None), "default", None)
-        lora_B = getattr(getattr(m, "lora_B", None), "default", None)
-        if lora_A is None or lora_B is None:
-            continue
-
-        # Actual trainable params (no dtype/device changes)
-        A = lora_A.weight
-        B = lora_B.weight
-
-        # LoRA scaling
-        scaling = 1.0
-        if hasattr(m, "scaling"):
-            s = getattr(m, "scaling")
-            scaling = float(s["default"] if isinstance(s, dict) else s)
-
-        # Effective weight
-        W = w + (B @ A) * scaling
-
-        # Nuclear/Frobenius ratio and its gradient wrt W
-        f = torch.linalg.norm(W, ord="fro") + eps
-        UV = polar_express(W)
-        nuc = torch.trace(W @ UV.T)
-        G = (UV / f) - (nuc / (f**3)) * W  # d(nuc/f)/dW
-
-        # Chain rule to LoRA params (scaled), base weight unscaled
-        if w.requires_grad:
-            if w.grad is None:
-                w.grad = torch.zeros_like(w)
-            w.grad.add_(reg_lambda * G)
-
-        if A.requires_grad:
-            if A.grad is None:
-                A.grad = torch.zeros_like(A)
-            A.grad.add_(reg_lambda * (B.T @ G) * scaling)
-
-        if B.requires_grad:
-            if B.grad is None:
-                B.grad = torch.zeros_like(B)
-            B.grad.add_(reg_lambda * (G @ A.T) * scaling)
 
 
 class LoRaNuclearRegCallback(TrainerCallback):
@@ -98,7 +43,8 @@ class LoRaNuclearRegCallback(TrainerCallback):
 
     def on_pre_optimizer_step(self, args, state, control, **kwargs):
         model = kwargs["model"]
-        add_lora_nuclear_reg_grads(model, self.reg_lambda, self.eps)
+        loss = low_rank_reg_loss(model, self.reg_lambda, self.eps)
+        (loss * self.reg_lambda).backward()
         return control
 
 

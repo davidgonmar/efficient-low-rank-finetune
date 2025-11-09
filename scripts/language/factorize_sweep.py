@@ -1,14 +1,9 @@
-#!/usr/bin/env python
 import argparse
 import json
-import math
 import re
 from pathlib import Path
-from typing import Dict, List
 
 import torch
-from datasets import load_dataset
-from torch.utils.data import DataLoader, Dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from balf.factorization.factorize import (
@@ -24,62 +19,14 @@ from balf.utils import (
     maybe_retrieve_activation_cache,
 )
 
+from lib.eval_language import test_ppl, get_train
 
-class ContiguousSeqDataset(Dataset):
-    def __init__(self, token_ids: torch.LongTensor, seq_len: int):
-        n_tokens = (token_ids.size(0) // seq_len) * seq_len
-        token_ids = token_ids[:n_tokens]
-        self.seq_len = seq_len
-        self.samples = token_ids.view(-1, seq_len)
-
-    def __len__(self):
-        return self.samples.size(0)
-
-    def __getitem__(self, idx):
-        ids = self.samples[idx]
-        return {"input_ids": ids.clone(), "attention_mask": torch.ones_like(ids)}
-
-
-def collate(batch):
-    return {k: torch.stack([x[k] for x in batch]) for k in batch[0]}
-
-
-@torch.no_grad()
-def perplexity(model, dataloader, device=None, ignore_inf=True):
-    device = device or next(model.parameters()).device
-    model.to(device).eval()
-    loss_fct = torch.nn.CrossEntropyLoss(reduction="none")
-    nll_tokens = []
-    total_tokens = 0
-    for batch in dataloader:
-        input_ids = batch["input_ids"].to(device)
-        attn_mask = batch.get("attention_mask", None)
-        if attn_mask is not None:
-            attn_mask = attn_mask.to(device)
-        logits = model(
-            input_ids=input_ids, attention_mask=attn_mask, use_cache=False
-        ).logits
-        if ignore_inf and not torch.isfinite(logits).all():
-            continue
-        shift_logits = logits[:, :-1, :].contiguous()
-        shift_labels = input_ids[:, 1:].contiguous()
-        # print(shift_logits.shape, shift_labels.shape)
-        loss = loss_fct(
-            shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)
-        )
-        nll_tokens.append(loss)
-        total_tokens += shift_labels.numel()
-    if total_tokens == 0:
-        print("No valid tokens processed")
-        return float("inf")
-    mean_nll = torch.cat(nll_tokens, dim=0).mean()
-    return math.exp(mean_nll.item())
 
 
 parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument("--model_name", required=True)
 parser.add_argument("--results_dir", required=True)
-parser.add_argument("--dataset", choices=["wikitext2", "ptb"], default="wikitext2")
+parser.add_argument("--dataset", choices=["wikitext2", "c4"], default="wikitext2")
 parser.add_argument("--seq_len", type=int, default=2048)
 parser.add_argument("--batch_size", type=int, default=4)
 parser.add_argument("--calib_size", type=int, default=256)
@@ -101,45 +48,12 @@ model = (
     .eval()
 )
 
-if args.dataset == "wikitext2":
-    eval_texts = load_dataset("wikitext", "wikitext-2-raw-v1", split="test")["text"]
-    calib_texts = load_dataset("wikitext", "wikitext-2-raw-v1", split="train")["text"]
-else:
-    eval_texts = load_dataset(
-        "ptb_text_only", "penn_treebank", split="validation", trust_remote_code=True
-    )["sentence"]
-    calib_texts = load_dataset(
-        "ptb_text_only", "penn_treebank", split="train", trust_remote_code=True
-    )["sentence"]
-
-eval_tok_ids = tok("\n\n".join(eval_texts), return_tensors="pt").input_ids.squeeze(0)
-calib_tok_ids = tok("\n\n".join(calib_texts), return_tensors="pt").input_ids.squeeze(0)
-
-eval_ds = ContiguousSeqDataset(eval_tok_ids, args.seq_len)
-calib_ds_full = ContiguousSeqDataset(calib_tok_ids, args.seq_len)
-
-args.eval_subset = 8
-
-if args.eval_subset is not None and args.eval_subset < len(eval_ds):
-    idx = torch.randperm(len(eval_ds))[: args.eval_subset]
-    eval_ds = torch.utils.data.Subset(eval_ds, idx)
-
-if len(calib_ds_full) > args.calib_size:
-    idx = torch.randperm(len(calib_ds_full))[: args.calib_size]
-    calib_ds = torch.utils.data.Subset(calib_ds_full, idx)
-else:
-    calib_ds = calib_ds_full
-
-eval_dl = DataLoader(
-    eval_ds, batch_size=args.batch_size, shuffle=False, collate_fn=collate
+ppl_orig = test_ppl(
+    model,
+    tok,
+    datasets=[args.dataset],
+    ppl_seqlen=args.seq_len,
 )
-
-
-calib_dl = DataLoader(
-    calib_ds, batch_size=args.batch_size, shuffle=False, collate_fn=collate
-)
-
-ppl_orig = perplexity(model, eval_dl, device=device)
 params_orig = sum(p.numel() for p in model.parameters())
 flops_orig = count_model_flops(model, (1, args.seq_len), dtype=torch.long)["total"]
 print(f"[original] ppl={ppl_orig:.4f} params={params_orig} flops_total={flops_orig}")
@@ -148,6 +62,25 @@ all_keys = get_all_convs_and_linears(model)
 skip_re = re.compile(r"(embed_tokens|embed_positions|lm_head)")
 layer_keys = [k for k in all_keys if not skip_re.search(k)]
 
+train_ds = get_train(
+    args.dataset,
+    tok,
+    size=args.calib_size,
+    seed=args.seed,
+    seqlen=args.seq_len,
+) # just a list of (input, target)
+
+
+train_ds = list(map(lambda tupl: tupl[0], train_ds)) # keep only inputs
+
+
+train_dl = torch.utils.data.DataLoader(
+    dataset=train_ds,
+    batch_size=args.batch_size,
+    shuffle=False,
+    drop_last=False,
+)
+
 activation_cache = maybe_retrieve_activation_cache(
     model_name=args.model_name,
     calib_size=args.calib_size,
@@ -155,7 +88,7 @@ activation_cache = maybe_retrieve_activation_cache(
     script_key="factorize_sweep",
     seed=args.seed,
     model=model,
-    dataloader=calib_dl,
+    dataloader=train_dl,
     keys=layer_keys,
 )
 
@@ -211,7 +144,12 @@ for k in ratios_comp if args.mode in ["flops_auto", "params_auto"] else ratios_e
         )
 
     model_lr.to(dtype=torch.float16).to(device).eval()
-    ppl_lr = perplexity(model_lr, eval_dl, device=device)
+    ppl_lr = test_ppl(
+        model_lr,
+        tok,
+        datasets=[args.dataset],
+        ppl_seqlen=args.seq_len,
+    )
     params_lr = sum(p.numel() for p in model_lr.parameters())
     flops_lr = count_model_flops(model_lr, (1, args.seq_len), dtype=torch.long)["total"]
 

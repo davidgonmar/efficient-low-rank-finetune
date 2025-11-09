@@ -1,12 +1,11 @@
 import time
 import argparse
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 import timm
-from lib.polar_express import polar_express
+from lib.polar_express import low_rank_reg_loss
 
 
 def parse_args():
@@ -29,29 +28,6 @@ def parse_args():
     return p.parse_args()
 
 
-@torch.no_grad()
-def add_nuclear_reg_grads(m: nn.Module, reg_lambda: float, eps: float = 1e-12):
-    ret = {}
-    for name, mod in m.named_modules():
-        w = getattr(mod, "weight", None)
-        if not isinstance(w, torch.Tensor) or w.dim() < 2:
-            continue
-        W = w.float()
-        orig_shape = W.shape
-        if W.dim() == 4:
-            W = W.view(W.size(0), -1)
-        f = torch.linalg.norm(W, ord="fro") + eps
-        UV = polar_express(W)
-        nuc = torch.trace(W @ UV.T)
-        G = (UV / f) - (nuc / (f**3)) * W
-        if w.requires_grad:
-            if w.grad is None:
-                w.grad = torch.zeros_like(w)
-            if len(orig_shape) == 4:
-                G = G.view(orig_shape)
-            w.grad.add_(reg_lambda * G.to(w.dtype))
-        ret[name] = (nuc / f).item()
-    return ret
 
 
 def evaluate(model, loader, device, amp_dtype):
@@ -140,23 +116,26 @@ def main():
             with torch.cuda.amp.autocast(enabled=(device == "cuda"), dtype=amp_dtype):
                 logits = model(x)
                 loss = F.cross_entropy(logits, y)
-            scaler.scale(loss).backward()
+            regloss = low_rank_reg_loss(
+                model,
+            )
+            scaler.scale(loss + args.reg_lambda * regloss).backward()
             scaler.unscale_(optimizer)
-            ret = add_nuclear_reg_grads(model, args.reg_lambda)
+           
             scaler.step(optimizer)
             scaler.update()
             run += loss.item()
             if i % 50 == 0:
                 print(f"epoch {epoch} iter {i} loss {run/50:.4f}")
                 run = 0.0
-                print(sum(ret.values()) / len(ret))
+                print(regloss / len(model.modules()))
             seen += x.size(0)
             if args.samples_per_epoch > 0 and seen > args.samples_per_epoch:
                 seen = 0
                 break
         val_loss, val_acc = evaluate(model, test_loader, device, amp_dtype)
         print(
-            f"epoch {epoch} val_loss {val_loss:.4f} val_acc {val_acc:.4f} time {time.time()-t0:.1f}s regloss {sum(ret.values()) / len(ret):.4f}"
+            f"epoch {epoch} val_loss {val_loss:.4f} val_acc {val_acc:.4f} time {time.time()-t0:.1f}s regloss {regloss:.4f}"
         )
     torch.save(model.state_dict(), args.save_path)
 
