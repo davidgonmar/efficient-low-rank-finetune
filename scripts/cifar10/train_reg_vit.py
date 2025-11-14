@@ -28,8 +28,6 @@ def parse_args():
     return p.parse_args()
 
 
-
-
 def evaluate(model, loader, device, amp_dtype):
     model.eval()
     correct, total, loss_sum = 0, 0, 0.0
@@ -121,7 +119,7 @@ def main():
             )
             scaler.scale(loss + args.reg_lambda * regloss).backward()
             scaler.unscale_(optimizer)
-           
+
             scaler.step(optimizer)
             scaler.update()
             run += loss.item()

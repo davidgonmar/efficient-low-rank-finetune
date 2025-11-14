@@ -5,6 +5,7 @@ from pathlib import Path
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from lm_eval import evaluator
 
 from balf.factorization.factorize import (
     to_low_rank_activation_aware_auto,
@@ -22,7 +23,6 @@ from balf.utils import (
 from lib.eval_language import test_ppl, get_train
 
 
-
 parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument("--model_name", required=True)
 parser.add_argument("--results_dir", required=True)
@@ -36,7 +36,10 @@ parser.add_argument(
     choices=["flops_auto", "params_auto", "energy_act_aware", "energy"],
 )
 parser.add_argument("--seed", type=int, default=0)
+parser.add_argument("--eval_tasks", required=True)
 args = parser.parse_args()
+
+eval_tasks = [t.strip() for t in args.eval_tasks.split(",") if t.strip()]
 
 seed_everything(args.seed)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -57,6 +60,11 @@ ppl_orig = test_ppl(
 params_orig = sum(p.numel() for p in model.parameters())
 flops_orig = count_model_flops(model, (1, args.seq_len), dtype=torch.long)["total"]
 print(f"[original] ppl={ppl_orig:.4f} params={params_orig} flops_total={flops_orig}")
+eval_results_orig = evaluator.simple_evaluate(
+    model,
+    tasks=eval_tasks,
+    batch_size=args.batch_size,
+)
 
 all_keys = get_all_convs_and_linears(model)
 skip_re = re.compile(r"(embed_tokens|embed_positions|lm_head)")
@@ -68,10 +76,10 @@ train_ds = get_train(
     size=args.calib_size,
     seed=args.seed,
     seqlen=args.seq_len,
-) # just a list of (input, target)
+)  # just a list of (input, target)
 
 
-train_ds = list(map(lambda tupl: tupl[0], train_ds)) # keep only inputs
+train_ds = list(map(lambda tupl: tupl[0], train_ds))  # keep only inputs
 
 
 train_dl = torch.utils.data.DataLoader(
@@ -157,15 +165,21 @@ for k in ratios_comp if args.mode in ["flops_auto", "params_auto"] else ratios_e
         f"[ratio={k:.6f}] ppl={ppl_lr:.4f} params_ratio={params_lr/params_orig:.4f} flops_ratio={flops_lr/flops_orig:.4f}"
     )
 
+    eval_results_lr = evaluator.simple_evaluate(
+        model_lr,
+        tasks=eval_tasks,
+        batch_size=args.batch_size,
+    )
+
     results.append(
         {
             "metric_value": float(k),
             "ppl": float(ppl_lr),
-            "ppl_orig": float(ppl_orig),
             "params_ratio": float(params_lr / params_orig),
             "flops_ratio": float(flops_lr / flops_orig),
             "mode": args.mode,
             "seq_len": args.seq_len,
+            "eval_results": eval_results_lr,
         }
     )
 
@@ -173,13 +187,13 @@ results.append(
     {
         "metric_value": "original",
         "ppl": float(ppl_orig),
-        "ppl_orig": float(ppl_orig),
         "params_ratio": 1.0,
         "flops_ratio": 1.0,
         "mode": args.mode,
         "seq_len": args.seq_len,
+        "eval_results": eval_results_orig,
     }
 )
 
 with open(base_dir / "results.json", "w") as f:
-    json.dump(results, f, indent=2)
+    json.dump(results, f, indent=2, default=lambda o: float(o))

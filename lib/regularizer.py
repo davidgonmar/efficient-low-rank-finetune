@@ -1,7 +1,8 @@
 import torch
 from lib.polar_express import polar_express
 
-# autograd 
+
+# autograd
 class LowRankRegularizer(torch.autograd.Function):
     @staticmethod
     def forward(ctx, W, eps):
@@ -11,12 +12,13 @@ class LowRankRegularizer(torch.autograd.Function):
         reg = nuc / frob
         ctx.save_for_backward(W, UV, frob, nuc)
         return reg
-    
+
     @staticmethod
     def backward(ctx, grad_output):
         W, UV, frob, nuc = ctx.saved_tensors
         G = (UV / frob) - (nuc / (frob**3)) * W
         return grad_output * G, None
+
 
 def low_rank_reg(W: torch.Tensor, eps: float = 1e-12) -> torch.Tensor:
     return LowRankRegularizer.apply(W, eps)

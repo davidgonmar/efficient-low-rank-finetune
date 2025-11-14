@@ -1,17 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Usage:
-#   ./compress.sh [PRETRAIN_MODEL] [REGULARIZED_MODEL]
-# Defaults:
-#   PRETRAIN_MODEL    = TinyLlama/TinyLlama_v1.1
-#   REGULARIZED_MODEL = $ROOT_DIR/models/regularized/$(basename PRETRAIN_MODEL)
-#
-# Examples:
-#   ./compress.sh
-#   ./compress.sh TinyLlama/TinyLlama_v1.1
-#   ./compress.sh meta-llama/Llama-3.1-8B $PWD/models/regularized/Llama-3.1-8B
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
@@ -28,11 +17,12 @@ echo $BASE_REGULARIZED
 
 
 # Common eval config
-DATASET="ptb"
+DATASET="wikitext-2"
 SEQ_LEN=2048
 BATCH_SIZE=4
 CALIB_SIZE=128
 SEED=0
+EVAL_TASKS="hellaswag,piqa,winogrande,boolq,arc_easy,arc_challenge"
 
 # Results layout mirrors the train script idea of model-scoped folders:
 # results/llm/<MODEL_BASENAME>/factorized_posttrain/{energy,params_auto}/results.json
@@ -62,7 +52,8 @@ python "${SCRIPT_DIR}/factorize_sweep.py" \
   --batch_size "${BATCH_SIZE}" \
   --calib_size "${CALIB_SIZE}" \
   --mode energy \
-  --seed "${SEED}"
+  --seed "${SEED}" \
+  --eval_tasks "${EVAL_TASKS}"
 
 python "${SCRIPT_DIR}/factorize_sweep.py" \
   --model_name "${MODEL_PRETRAIN_IN}" \
@@ -72,7 +63,8 @@ python "${SCRIPT_DIR}/factorize_sweep.py" \
   --batch_size "${BATCH_SIZE}" \
   --calib_size "${CALIB_SIZE}" \
   --mode energy \
-  --seed "${SEED}"
+  --seed "${SEED}" \
+  --eval_tasks "${EVAL_TASKS}"
 
 # ---------------------
 # Plots
@@ -111,5 +103,3 @@ echo "  ${REGULARIZED_RESULTS_PARAMS}"
 echo "Plots saved to:"
 echo "  ${OUT_DIR}"
 echo ""
-
-
