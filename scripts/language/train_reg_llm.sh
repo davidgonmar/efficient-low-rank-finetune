@@ -5,7 +5,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
-MODEL_IN="${1:-TinyLlama/TinyLlama_v1.1}"
+MODEL_IN="facebook/opt-1.3b"
 
 
 MODEL_BASENAME="$(basename "${MODEL_IN}")"
@@ -18,8 +18,8 @@ mkdir -p "$(dirname "${MERGED_DIR}")"
 
 python "${SCRIPT_DIR}/train_reg_llm.py" \
   --model_name "${MODEL_IN}" \
-  --dataset_name wikitext \
-  --dataset_config wikitext-2-raw-v1 \
+  --dataset_name "togethercomputer/RedPajama-Data-1T-Sample" \
+  --dataset_config "" \
   --max_length 2048 \
   --output_dir "${ADAPTER_DIR}" \
   --merged_output_dir "${MERGED_DIR}" \
@@ -37,6 +37,7 @@ python "${SCRIPT_DIR}/train_reg_llm.py" \
   --save_total_limit 1 \
   --logging_steps 50 \
   --bf16
+
 
 echo ""
 echo "Regularized FINAL model saved to:"

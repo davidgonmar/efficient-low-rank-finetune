@@ -33,7 +33,7 @@ parser.add_argument("--calib_size", type=int, default=256)
 parser.add_argument(
     "--mode",
     default="flops_auto",
-    choices=["flops_auto", "params_auto", "energy_act_aware", "energy"],
+    choices=["flops_auto", "params_auto", "energy_act_aware", "rank"],
 )
 parser.add_argument("--seed", type=int, default=0)
 parser.add_argument("--eval_tasks", required=True)
@@ -108,7 +108,9 @@ results = []
 ratios_comp = [0.1, 0.3, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 1.0]
 ratios_energy = [0.85, 0.9, 0.95, 0.98, 0.99999]
 
-for k in ratios_comp if args.mode in ["flops_auto", "params_auto"] else ratios_energy:
+for k in (
+    ratios_comp if args.mode in ["flops_auto", "params_auto", "rank"] else ratios_energy
+):
     if args.mode in ["flops_auto", "params_auto"]:
         model_lr = to_low_rank_activation_aware_auto(
             model,
@@ -146,8 +148,7 @@ for k in ratios_comp if args.mode in ["flops_auto", "params_auto"] else ratios_e
         model_lr = to_low_rank_manual(
             model,
             cfg_dict={
-                kk: {"name": "svals_energy_ratio_to_keep", "value": k}
-                for kk in layer_keys
+                kk: {"name": "rank_ratio_to_keep", "value": k} for kk in layer_keys
             },
             inplace=False,
         )

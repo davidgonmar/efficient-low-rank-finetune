@@ -5,7 +5,7 @@ import shutil
 import tempfile
 
 import torch
-from datasets import load_dataset
+from datasets import load_dataset, DatasetDict
 
 from transformers import (
     AutoTokenizer,
@@ -127,7 +127,17 @@ def main():
     args = parse_args()
 
     # Dataset
-    dataset = load_dataset(args.dataset_name, args.dataset_config)
+    if args.dataset_config:
+        dataset = load_dataset(args.dataset_name, args.dataset_config)
+    else:
+        dataset = load_dataset(args.dataset_name)
+
+    if "validation" not in dataset:
+        split = dataset["train"].train_test_split(test_size=0.005, seed=42)
+        dataset = DatasetDict(
+            train=split["train"],
+            validation=split["test"],
+        )
 
     # Tokenizer: use fast + explicit legacy=False to avoid legacy warning
     tokenizer = AutoTokenizer.from_pretrained(

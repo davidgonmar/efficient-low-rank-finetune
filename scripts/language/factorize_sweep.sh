@@ -4,7 +4,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 # Inputs (match train script naming)
-MODEL_PRETRAIN_IN="${1:-TinyLlama/TinyLlama_v1.1}"
+MODEL_PRETRAIN_IN="facebook/opt-1.3b"
 # If REGULARIZED not given, assume the train script’s merged output layout
 MODEL_REGULARIZED_IN="${2:-"${ROOT_DIR}/models/regularized/$(basename "${MODEL_PRETRAIN_IN}")"}"
 
@@ -24,44 +24,36 @@ SEED=0
 EVAL_TASKS="hellaswag,piqa,winogrande,boolq,arc_easy,arc_challenge"
 
 # Results layout mirrors the train script idea of model-scoped folders:
-# results/llm/<MODEL_BASENAME>/factorized_posttrain/{energy,params_auto}/results.json
-RES_PRETRAIN_ENERGY_DIR="${ROOT_DIR}/results/llm/${BASE_PRETRAIN}/factorized_posttrain/energy"
-RES_REGULARIZED_ENERGY_DIR="${ROOT_DIR}/results/llm/${BASE_REGULARIZED}/factorized_posttrain/energy"
+# results/llm/<MODEL_BASENAME>/factorized_posttrain/{rank,params_auto}/results.json
+RES_PRETRAIN_rank_DIR="${ROOT_DIR}/results/llm/${BASE_PRETRAIN}/factorized_posttrain/rank"
+RES_REGULARIZED_rank_DIR="${ROOT_DIR}/results/llm/${BASE_REGULARIZED}/factorized_posttrain/rank"
 RES_PRETRAIN_PARAMS_DIR="${ROOT_DIR}/results/llm/${BASE_PRETRAIN}/factorized_posttrain/params_auto"
 RES_REGULARIZED_PARAMS_DIR="${ROOT_DIR}/results/llm/${BASE_REGULARIZED}/factorized_posttrain/params_auto"
 
-mkdir -p "${RES_PRETRAIN_ENERGY_DIR}" \
-         "${RES_REGULARIZED_ENERGY_DIR}" \
+mkdir -p "${RES_PRETRAIN_rank_DIR}" \
+         "${RES_REGULARIZED_rank_DIR}" \
          "${RES_PRETRAIN_PARAMS_DIR}" \
          "${RES_REGULARIZED_PARAMS_DIR}"
 
-
-
-
-# ---------------------
-# Energy-SVD sweeps
-# ---------------------
-
-
-python "${SCRIPT_DIR}/factorize_sweep.py" \
-  --model_name "${MODEL_REGULARIZED_IN}" \
-  --results_dir "${RES_REGULARIZED_ENERGY_DIR}" \
-  --dataset "${DATASET}" \
-  --seq_len "${SEQ_LEN}" \
-  --batch_size "${BATCH_SIZE}" \
-  --calib_size "${CALIB_SIZE}" \
-  --mode energy \
-  --seed "${SEED}" \
-  --eval_tasks "${EVAL_TASKS}"
-
 python "${SCRIPT_DIR}/factorize_sweep.py" \
   --model_name "${MODEL_PRETRAIN_IN}" \
-  --results_dir "${RES_PRETRAIN_ENERGY_DIR}" \
+  --results_dir "${RES_PRETRAIN_rank_DIR}" \
   --dataset "${DATASET}" \
   --seq_len "${SEQ_LEN}" \
   --batch_size "${BATCH_SIZE}" \
   --calib_size "${CALIB_SIZE}" \
-  --mode energy \
+  --mode rank \
+  --seed "${SEED}" \
+  --eval_tasks "${EVAL_TASKS}"
+  
+python "${SCRIPT_DIR}/factorize_sweep.py" \
+  --model_name "${MODEL_REGULARIZED_IN}" \
+  --results_dir "${RES_REGULARIZED_rank_DIR}" \
+  --dataset "${DATASET}" \
+  --seq_len "${SEQ_LEN}" \
+  --batch_size "${BATCH_SIZE}" \
+  --calib_size "${CALIB_SIZE}" \
+  --mode rank \
   --seed "${SEED}" \
   --eval_tasks "${EVAL_TASKS}"
 
@@ -71,34 +63,12 @@ python "${SCRIPT_DIR}/factorize_sweep.py" \
 OUT_DIR="${ROOT_DIR}/results/llm/plots/${BASE_PRETRAIN}_vs_${BASE_REGULARIZED}"
 mkdir -p "${OUT_DIR}"
 
-PRETRAIN_RESULTS_ENERGY="${RES_PRETRAIN_ENERGY_DIR}/results.json"
-REGULARIZED_RESULTS_ENERGY="${RES_REGULARIZED_ENERGY_DIR}/results.json"
+PRETRAIN_RESULTS_rank="${RES_PRETRAIN_rank_DIR}/results.json"
+REGULARIZED_RESULTS_rank="${RES_REGULARIZED_rank_DIR}/results.json"
 
 python "${SCRIPT_DIR}/plot.py" \
-  --runs "${PRETRAIN_RESULTS_ENERGY}:${BASE_PRETRAIN} pretrain" "${REGULARIZED_RESULTS_ENERGY}:${BASE_REGULARIZED} regularized" \
-  --title "Compressibility with Energy-SVD — ${BASE_PRETRAIN} vs ${BASE_REGULARIZED}" \
+  --runs "${PRETRAIN_RESULTS_rank}:${BASE_PRETRAIN} pretrain" "${REGULARIZED_RESULTS_rank}:${BASE_REGULARIZED} regularized" \
+  --title "Compressibility with rank-SVD — ${BASE_PRETRAIN} vs ${BASE_REGULARIZED}" \
   --out_dir "${OUT_DIR}" \
-  --name "energy"
+  --name "rank"
 
-PRETRAIN_RESULTS_PARAMS="${RES_PRETRAIN_PARAMS_DIR}/results.json"
-REGULARIZED_RESULTS_PARAMS="${RES_REGULARIZED_PARAMS_DIR}/results.json"
-
-python "${SCRIPT_DIR}/plot.py" \
-  --runs "${PRETRAIN_RESULTS_PARAMS}:${BASE_PRETRAIN} pretrain" "${REGULARIZED_RESULTS_PARAMS}:${BASE_REGULARIZED} regularized" \
-  --title "Compressibility with BALF — ${BASE_PRETRAIN} vs ${BASE_REGULARIZED}" \
-  --out_dir "${OUT_DIR}" \
-  --name "params_auto"
-
-echo ""
-echo "Compression completed."
-echo "Pretrain model:     ${MODEL_PRETRAIN_IN} -> ${BASE_PRETRAIN}"
-echo "Regularized model:  ${MODEL_REGULARIZED_IN} -> ${BASE_REGULARIZED}"
-echo "Energy results:"
-echo "  ${PRETRAIN_RESULTS_ENERGY}"
-echo "  ${REGULARIZED_RESULTS_ENERGY}"
-echo "Params-auto results:"
-echo "  ${PRETRAIN_RESULTS_PARAMS}"
-echo "  ${REGULARIZED_RESULTS_PARAMS}"
-echo "Plots saved to:"
-echo "  ${OUT_DIR}"
-echo ""

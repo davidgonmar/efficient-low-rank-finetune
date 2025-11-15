@@ -1,4 +1,3 @@
-# data_utils.py
 from datasets import load_dataset
 import torch
 import random
@@ -23,7 +22,7 @@ def get_wikitext2_train(tokenizer, size, seed, seqlen):
 
 def get_wikitext2_test(tokenizer, seqlen):
     testdata = load_dataset("wikitext", "wikitext-2-raw-v1", split="test")
-    enc = tokenizer("\n\n".join(testdata["text"]), return_tensors="pt").input_ids
+    enc = tokenizer("\n\n".join(testdata["text"]), return_tensors="pt").input_ids[0]
     return enc
 
 
@@ -69,7 +68,7 @@ def get_c4_test(tokenizer, seqlen, segments=256):
         a = random.randint(0, tmp.input_ids.shape[1] - seqlen - 1)
         b = a + seqlen
         parts.append(tmp.input_ids[:, a:b])
-    return torch.hstack(parts)
+    return torch.hstack(parts)[0]
 
 
 def get_redpajama_train(tokenizer, size, seed, seqlen):
@@ -109,7 +108,7 @@ def get_redpajama_test(tokenizer, seqlen, segments=256):
         a = random.randint(0, tmp.input_ids.shape[1] - seqlen - 1)
         b = a + seqlen
         parts.append(tmp.input_ids[:, a:b])
-    return torch.hstack(parts)
+    return torch.hstack(parts)[0]
 
 
 def get_train(name, tokenizer, size=128, seed=0, seqlen=2048):
@@ -166,7 +165,7 @@ def test_ppl(model, tokenizer, datasets=["wikitext2"], ppl_seqlen=2048):
             else:
                 logits = outputs[0]
             shift_logits = logits[:, :-1, :]
-            shift_labels = testenc[:, (i * seqlen) : ((i + 1) * seqlen)][:, 1:].to(
+            shift_labels = testenc[(i * seqlen) : ((i + 1) * seqlen)][1:].to(
                 shift_logits.device
             )
             loss_fct = nn.CrossEntropyLoss()
