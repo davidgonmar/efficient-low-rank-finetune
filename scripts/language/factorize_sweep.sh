@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
@@ -17,7 +16,7 @@ echo $BASE_REGULARIZED
 
 
 # Common eval config
-DATASET="wikitext-2"
+DATASET="wikitext2"
 SEQ_LEN=2048
 BATCH_SIZE=4
 CALIB_SIZE=128

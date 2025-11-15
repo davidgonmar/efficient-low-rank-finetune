@@ -385,7 +385,10 @@ def _process_act(act, mod):
         )  # shape (groups, B * H_out * W_out, C_in * H_k * W_k // groups)
     elif isinstance(mod, nn.Linear):
         # Input should be of shape (B, Cin)
-        assert act.dim() == 2 or act.dim() == 3  # for language models, [B, L, D]
+        # print(mod)
+        assert (
+            act.dim() == 2 or act.dim() == 3
+        ), act.shape  # for language models, [B, L, D]
         im2coled = act.reshape(
             1, -1, act.shape[-1]
         )  # flatten the batch and sequence dimensions, shape (groups=1, B * L, D)

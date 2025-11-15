@@ -41,7 +41,7 @@ class LoRaNuclearRegCallback(TrainerCallback):
 
     def on_pre_optimizer_step(self, args, state, control, **kwargs):
         model = kwargs["model"]
-        loss = low_rank_reg_loss(model, self.reg_lambda, self.eps)
+        loss = low_rank_reg_loss(model, self.eps)
         (loss * self.reg_lambda).backward()
         return control
 

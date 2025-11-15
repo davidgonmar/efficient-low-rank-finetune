@@ -17,7 +17,7 @@ def get_wikitext2_train(tokenizer, size, seed, seqlen):
         inp = trainenc.input_ids[:, i:j]
         tar = inp.clone()
         tar[:, :-1] = -100
-        out.append((inp, tar))
+        out.append((inp[0], tar[0]))
     return out
 
 
@@ -47,7 +47,7 @@ def get_c4_train(tokenizer, size, seed, seqlen):
         inp = enc.input_ids[:, a:b]
         tar = inp.clone()
         tar[:, :-1] = -100
-        out.append((inp, tar))
+        out.append((inp[0], tar[0]))
     return out
 
 
@@ -91,7 +91,7 @@ def get_redpajama_train(tokenizer, size, seed, seqlen):
         inp = enc.input_ids[:, a:b]
         tar = inp.clone()
         tar[:, :-1] = -100
-        out.append((inp, tar))
+        out.append((inp[0], tar[0]))
     return out
 
 
@@ -154,7 +154,11 @@ def test_ppl(model, tokenizer, datasets=["wikitext2"], ppl_seqlen=2048):
         else:
             raise NotImplementedError
         for i in tqdm(range(nsamples)):
-            batch = testenc[:, (i * seqlen) : ((i + 1) * seqlen)].to(model.device)
+            batch = (
+                testenc[(i * seqlen) : ((i + 1) * seqlen)]
+                .to(model.device)
+                .reshape(1, -1)
+            )
             outputs = model.model(batch)
             if classifier is not None:
                 hidden_states = outputs[0]

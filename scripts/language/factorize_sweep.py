@@ -20,8 +20,8 @@ from balf.utils import (
     maybe_retrieve_activation_cache,
 )
 
-from lib.eval_language import test_ppl, get_train
-
+from lib.dataset_utils_language import test_ppl, get_train
+from lm_eval.models.huggingface import HFLM
 
 parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument("--model_name", required=True)
@@ -59,12 +59,15 @@ ppl_orig = test_ppl(
 )
 params_orig = sum(p.numel() for p in model.parameters())
 flops_orig = count_model_flops(model, (1, args.seq_len), dtype=torch.long)["total"]
-print(f"[original] ppl={ppl_orig:.4f} params={params_orig} flops_total={flops_orig}")
-eval_results_orig = evaluator.simple_evaluate(
-    model,
+print(f"[original] ppl={ppl_orig} params={params_orig} flops_total={flops_orig}")
+eval_raw_orig = evaluator.simple_evaluate(
+    HFLM(model, batch_size=16),
     tasks=eval_tasks,
     batch_size=args.batch_size,
+    limit=64,
 )
+eval_results_orig = {t: eval_raw_orig["results"][t]["acc,none"] for t in eval_tasks}
+print("[original]", eval_results_orig)
 
 all_keys = get_all_convs_and_linears(model)
 skip_re = re.compile(r"(embed_tokens|embed_positions|lm_head)")
@@ -76,11 +79,9 @@ train_ds = get_train(
     size=args.calib_size,
     seed=args.seed,
     seqlen=args.seq_len,
-)  # just a list of (input, target)
+)
 
-
-train_ds = list(map(lambda tupl: tupl[0], train_ds))  # keep only inputs
-
+train_ds = list(map(lambda tupl: tupl[0][0], train_ds))
 
 train_dl = torch.utils.data.DataLoader(
     dataset=train_ds,
@@ -162,19 +163,22 @@ for k in ratios_comp if args.mode in ["flops_auto", "params_auto"] else ratios_e
     flops_lr = count_model_flops(model_lr, (1, args.seq_len), dtype=torch.long)["total"]
 
     print(
-        f"[ratio={k:.6f}] ppl={ppl_lr:.4f} params_ratio={params_lr/params_orig:.4f} flops_ratio={flops_lr/flops_orig:.4f}"
+        f"[ratio={k:.6f}] ppl={ppl_lr:} params_ratio={params_lr/params_orig:.4f} flops_ratio={flops_lr/flops_orig:.4f}"
     )
 
-    eval_results_lr = evaluator.simple_evaluate(
-        model_lr,
+    eval_raw_lr = evaluator.simple_evaluate(
+        HFLM(model_lr, batch_size=16),
         tasks=eval_tasks,
         batch_size=args.batch_size,
+        limit=64,
     )
+    eval_results_lr = {t: eval_raw_lr["results"][t]["acc,none"] for t in eval_tasks}
+    print(eval_results_lr)
 
     results.append(
         {
             "metric_value": float(k),
-            "ppl": float(ppl_lr),
+            "ppl": ppl_lr,
             "params_ratio": float(params_lr / params_orig),
             "flops_ratio": float(flops_lr / flops_orig),
             "mode": args.mode,
@@ -186,7 +190,7 @@ for k in ratios_comp if args.mode in ["flops_auto", "params_auto"] else ratios_e
 results.append(
     {
         "metric_value": "original",
-        "ppl": float(ppl_orig),
+        "ppl": ppl_orig,
         "params_ratio": 1.0,
         "flops_ratio": 1.0,
         "mode": args.mode,

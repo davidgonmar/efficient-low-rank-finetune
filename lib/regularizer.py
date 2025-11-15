@@ -24,7 +24,6 @@ def low_rank_reg(W: torch.Tensor, eps: float = 1e-12) -> torch.Tensor:
     return LowRankRegularizer.apply(W, eps)
 
 
-@torch.no_grad()
 def low_rank_reg_loss(model, eps: float = 1e-12):
     loss = 0.0
     for m in model.modules():
