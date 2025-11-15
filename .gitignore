@@ -169,3 +169,5 @@ tfg/
 *.bin
 
 results/
+
+models/
