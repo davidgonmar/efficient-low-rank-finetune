@@ -19,6 +19,8 @@ from balf.utils import (
     make_factorization_cache_location,
     maybe_retrieve_activation_cache,
 )
+import copy
+import gc
 
 from lib.dataset_utils_language import test_ppl, get_train
 from lm_eval.models.huggingface import HFLM
@@ -46,7 +48,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 tok = AutoTokenizer.from_pretrained(args.model_name, use_fast=False)
 model = (
-    AutoModelForCausalLM.from_pretrained(args.model_name, torch_dtype=torch.float32)
+    AutoModelForCausalLM.from_pretrained(args.model_name, torch_dtype=torch.float16)
     .to(device)
     .eval()
 )
@@ -64,7 +66,7 @@ eval_raw_orig = evaluator.simple_evaluate(
     HFLM(model, batch_size=16),
     tasks=eval_tasks,
     batch_size=args.batch_size,
-    limit=64,
+    limit=128,
 )
 eval_results_orig = {t: eval_raw_orig["results"][t]["acc,none"] for t in eval_tasks}
 print("[original]", eval_results_orig)
@@ -81,7 +83,7 @@ train_ds = get_train(
     seqlen=args.seq_len,
 )
 
-train_ds = list(map(lambda tupl: tupl[0][0], train_ds))
+train_ds = list(map(lambda tupl: tupl[0], train_ds))
 
 train_dl = torch.utils.data.DataLoader(
     dataset=train_ds,
@@ -108,15 +110,17 @@ results = []
 ratios_comp = [0.1, 0.3, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 1.0]
 ratios_energy = [0.85, 0.9, 0.95, 0.98, 0.99999]
 
+model = model.cpu()
+
 for k in (
     ratios_comp if args.mode in ["flops_auto", "params_auto", "rank"] else ratios_energy
 ):
+    model_copy = copy.deepcopy(model).half().cuda()
     if args.mode in ["flops_auto", "params_auto"]:
         model_lr = to_low_rank_activation_aware_auto(
-            model,
+            model_copy,
             activation_cache,
             ratio_to_keep=k,
-            inplace=False,
             keys=layer_keys,
             metric="flops" if args.mode == "flops_auto" else "params",
             save_dir=make_factorization_cache_location(
@@ -129,13 +133,12 @@ for k in (
         )
     elif args.mode == "energy_act_aware":
         model_lr = to_low_rank_activation_aware_manual(
-            model,
+            model_copy,
             activation_cache,
             cfg_dict={
                 kk: {"name": "svals_energy_ratio_to_keep", "value": k}
                 for kk in layer_keys
             },
-            inplace=False,
             save_dir=make_factorization_cache_location(
                 args.model_name,
                 args.calib_size,
@@ -146,11 +149,10 @@ for k in (
         )
     else:
         model_lr = to_low_rank_manual(
-            model,
+            model_copy,
             cfg_dict={
                 kk: {"name": "rank_ratio_to_keep", "value": k} for kk in layer_keys
             },
-            inplace=False,
         )
 
     model_lr.to(dtype=torch.float16).to(device).eval()
@@ -166,12 +168,12 @@ for k in (
     print(
         f"[ratio={k:.6f}] ppl={ppl_lr:} params_ratio={params_lr/params_orig:.4f} flops_ratio={flops_lr/flops_orig:.4f}"
     )
-
+    lm = HFLM(model_lr, batch_size=16)
     eval_raw_lr = evaluator.simple_evaluate(
-        HFLM(model_lr, batch_size=16),
+        lm,
         tasks=eval_tasks,
         batch_size=args.batch_size,
-        limit=64,
+        limit=128,
     )
     eval_results_lr = {t: eval_raw_lr["results"][t]["acc,none"] for t in eval_tasks}
     print(eval_results_lr)
@@ -187,7 +189,24 @@ for k in (
             "eval_results": eval_results_lr,
         }
     )
+    model_lr.cpu()
 
+    # Drop all big references
+    del lm
+    del eval_raw_lr
+    del model_lr
+    del model_copy
+
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    print(
+        "After cleanup: allocated",
+        torch.cuda.memory_allocated() / 1024**2,
+        "MB, reserved",
+        torch.cuda.memory_reserved() / 1024**2,
+        "MB",
+    )
 results.append(
     {
         "metric_value": "original",

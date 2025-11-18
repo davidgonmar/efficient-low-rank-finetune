@@ -20,11 +20,33 @@ class LowRankRegularizer(torch.autograd.Function):
         return grad_output * G, None
 
 
+"""class LowRankRegularizer(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, W, eps):
+        ctx.save_for_backward(W)
+        ctx.eps = eps
+        return W.new_zeros(())
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        (W,) = ctx.saved_tensors
+        eps = ctx.eps
+
+        frob = torch.linalg.norm(W, ord="fro") + eps
+        UV = polar_express(W)
+        nuc = torch.trace(W @ UV.T)
+
+        G = (UV / frob) - (nuc / (frob**3)) * W
+        return grad_output * G, None
+"""
+
+
 def low_rank_reg(W: torch.Tensor, eps: float = 1e-12) -> torch.Tensor:
     return LowRankRegularizer.apply(W, eps)
 
 
-def low_rank_reg_loss(model, eps: float = 1e-12):
+def low_rank_reg_loss(model, eps: float = 1e-12, reg_lambda=0.01):
+    # return 0.0
     loss = 0.0
     for m in model.modules():
         w = getattr(m, "weight", None)
@@ -49,6 +71,10 @@ def low_rank_reg_loss(model, eps: float = 1e-12):
         # Effective weight
         W = w + (B @ A) * scaling
 
-        loss = loss + low_rank_reg(W, eps=eps)
+        # print(W.dtype, B.dtype, w.dtype, A.dtype)
+
+        loss_ = (low_rank_reg(W, eps=eps) ** 2) * reg_lambda
+        loss_.backward()
+        loss += loss_.detach().item()
 
     return loss

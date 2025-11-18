@@ -37,6 +37,9 @@ def replace_with_factory(
         setattr(parent_module, attr_name, factory_fn(name, module))
         del module
         module_dict[name] = None
+        torch.cuda.empty_cache()
+        # print("Allocated:", torch.cuda.memory_allocated() / 1024**2, "MB")
+        # print("Reserved:", torch.cuda.memory_reserved() / 1024**2, "MB")
     return model
 
 

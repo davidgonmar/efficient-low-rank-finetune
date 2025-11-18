@@ -197,8 +197,8 @@ def decompose_params(w: torch.Tensor):
     Expects a matrix or a batch of matrices (each one from a group)
     """
     assert w.device.type == "cuda", "Weights must be on GPU for SVD"
-    U, S, V_T = torch.linalg.svd(w, full_matrices=False)  # complete SVD
-    return U, S, V_T
+    U, S, V_T = torch.linalg.svd(w.float(), full_matrices=False)  # complete SVD
+    return U.to(w.dtype), S.to(w.dtype), V_T.to(w.dtype)
 
 
 def crop_svd(U, S, V_T, rank):
@@ -438,9 +438,14 @@ def collect_activation_cache(model: nn.Module, data, keys):
         for batch in data:
             print("batch {}/{}".format(it + 1, nbatches), end="\r")
             it += 1
-            if isinstance(batch, (list, tuple)):
-                model(_move(batch[0], device))
+            if isinstance(batch, (list, tuple, torch.Tensor)):
+                model(
+                    _move(
+                        batch[0] if isinstance(batch, (list, tuple)) else batch, device
+                    )
+                )
             else:
+                print(batch)
                 raise ValueError(
                     "Data should be a tensor or a tuple/list (as in an ImageFolder dataset)"
                 )
@@ -885,9 +890,11 @@ def to_low_rank_manual(
         else:
             return module
 
+    di = {name: module for name, module in modules_to_replace}
+    del modules_to_replace
     replace_with_factory(
         model,
-        {name: module for name, module in modules_to_replace},
+        di,
         factory_fn,
     )
     return model

@@ -41,8 +41,20 @@ class LoRaNuclearRegCallback(TrainerCallback):
 
     def on_pre_optimizer_step(self, args, state, control, **kwargs):
         model = kwargs["model"]
-        loss = low_rank_reg_loss(model, self.eps)
-        (loss * self.reg_lambda).backward()
+        reg_loss = low_rank_reg_loss(
+            model, self.eps, self.reg_lambda
+        )  # implicitly does bw
+
+        if hasattr(reg_loss, "item"):
+            reg_loss = reg_loss.item()
+        self.last_reg_loss = reg_loss
+
+        return control
+
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        # logs is the dict Trainer is about to print / send to loggers
+        if logs is not None and self.last_reg_loss is not None:
+            logs["reg_loss"] = self.last_reg_loss
         return control
 
 
@@ -120,6 +132,7 @@ def parse_args():
         type=str,
         default="q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj",
     )
+    p.add_argument("--resume", action="store_true")
     return p.parse_args()
 
 
@@ -154,9 +167,16 @@ def main():
         remove_columns=["text"],
     )
 
+    # args.resume = True
+    model_name_or_path = (
+        args.merged_output_dir
+        if args.resume and os.path.isdir(args.merged_output_dir)
+        else args.model_name
+    )
+
     # Base model
     model = AutoModelForCausalLM.from_pretrained(
-        args.model_name,
+        model_name_or_path,
         torch_dtype=torch.bfloat16 if args.bf16 else None,
     )
 
@@ -170,7 +190,7 @@ def main():
         target_modules=[m.strip() for m in args.target_modules.split(",") if m.strip()],
     )
 
-    model = get_peft_model(model, peft_config)
+    model = get_peft_model(model, peft_config, autocast_adapter_dtype=False)
 
     # Disable HF's own checkpoint saving (we'll save only merged via our callback)
     training_args = TrainingArguments(

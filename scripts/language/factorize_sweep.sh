@@ -4,7 +4,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 # Inputs (match train script naming)
-MODEL_PRETRAIN_IN="facebook/opt-1.3b"
+MODEL_PRETRAIN_IN="Qwen/Qwen2.5-7B-Instruct"
 # If REGULARIZED not given, assume the train script’s merged output layout
 MODEL_REGULARIZED_IN="${2:-"${ROOT_DIR}/models/regularized/$(basename "${MODEL_PRETRAIN_IN}")"}"
 
@@ -36,17 +36,6 @@ mkdir -p "${RES_PRETRAIN_rank_DIR}" \
          "${RES_REGULARIZED_PARAMS_DIR}"
 
 python "${SCRIPT_DIR}/factorize_sweep.py" \
-  --model_name "${MODEL_PRETRAIN_IN}" \
-  --results_dir "${RES_PRETRAIN_rank_DIR}" \
-  --dataset "${DATASET}" \
-  --seq_len "${SEQ_LEN}" \
-  --batch_size "${BATCH_SIZE}" \
-  --calib_size "${CALIB_SIZE}" \
-  --mode rank \
-  --seed "${SEED}" \
-  --eval_tasks "${EVAL_TASKS}"
-  
-python "${SCRIPT_DIR}/factorize_sweep.py" \
   --model_name "${MODEL_REGULARIZED_IN}" \
   --results_dir "${RES_REGULARIZED_rank_DIR}" \
   --dataset "${DATASET}" \
@@ -56,6 +45,20 @@ python "${SCRIPT_DIR}/factorize_sweep.py" \
   --mode rank \
   --seed "${SEED}" \
   --eval_tasks "${EVAL_TASKS}"
+
+: <<'EOF'
+python "${SCRIPT_DIR}/factorize_sweep.py" \
+  --model_name "${MODEL_PRETRAIN_IN}" \
+  --results_dir "${RES_PRETRAIN_rank_DIR}" \
+  --dataset "${DATASET}" \
+  --seq_len "${SEQ_LEN}" \
+  --batch_size "${BATCH_SIZE}" \
+  --calib_size "${CALIB_SIZE}" \
+  --mode rank \
+  --seed "${SEED}" \
+  --eval_tasks "${EVAL_TASKS}"
+EOF
+
 
 # ---------------------
 # Plots
