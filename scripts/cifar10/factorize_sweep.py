@@ -7,6 +7,7 @@ It can use BALF (our proposed method) or other baselines.
 import argparse
 import json
 from pathlib import Path
+import shutil
 
 import torch
 from torch.utils.data import DataLoader
@@ -105,6 +106,15 @@ print(
 )
 
 
+cache_dir = make_factorization_cache_location(
+    args.model_name + "_" + args.pretrained_path.split("/")[-1].split(".")[0],
+    args.calib_size,
+    "cifar10",
+    "factorize_sweep",
+    args.seed,
+)
+shutil.rmtree(cache_dir, ignore_errors=True)
+
 layer_keys = [k for k in get_all_convs_and_linears(model)]
 
 
@@ -117,25 +127,18 @@ results = []
 
 
 ratios_comp = [
-    0.1,
-    0.15,
-    0.2,
+    # 0.1,
+    # 0.15,
+    # 0.2,
     0.25,
     0.3,
-    0.35,
+    # 0.35,
     0.4,
-    0.45,
     0.5,
-    0.55,
     0.6,
-    0.65,
     0.7,
-    0.75,
     0.8,
-    0.85,
     0.9,
-    0.95,
-    0.975,
     1.00,
 ]
 

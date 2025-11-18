@@ -56,23 +56,25 @@ def low_rank_reg_loss(model, eps: float = 1e-12, reg_lambda=0.01):
         lora_A = getattr(getattr(m, "lora_A", None), "default", None)
         lora_B = getattr(getattr(m, "lora_B", None), "default", None)
         if lora_A is None or lora_B is None:
-            continue
+            W = w
+        else:
+            # Actual trainable params (no dtype/device changes)
+            A = lora_A.weight
+            B = lora_B.weight
 
-        # Actual trainable params (no dtype/device changes)
-        A = lora_A.weight
-        B = lora_B.weight
+            # LoRA scaling
+            scaling = 1.0
+            if hasattr(m, "scaling"):
+                s = getattr(m, "scaling")
+                scaling = float(s["default"] if isinstance(s, dict) else s)
 
-        # LoRA scaling
-        scaling = 1.0
-        if hasattr(m, "scaling"):
-            s = getattr(m, "scaling")
-            scaling = float(s["default"] if isinstance(s, dict) else s)
-
-        # Effective weight
-        W = w + (B @ A) * scaling
+            # Effective weight
+            W = w + (B @ A) * scaling
 
         # print(W.dtype, B.dtype, w.dtype, A.dtype)
 
+        if W.ndim == 4:
+            W = W.reshape(W.shape[0], -1)
         loss_ = (low_rank_reg(W, eps=eps) ** 2) * reg_lambda
         loss_.backward()
         loss += loss_.detach().item()

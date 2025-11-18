@@ -174,7 +174,7 @@ def main():
         batched=True,
         remove_columns=["text"],
     )
-    #args.resume=True
+    # args.resume=True
     model_name_or_path = (
         args.merged_output_dir
         if args.resume and os.path.isdir(args.merged_output_dir)

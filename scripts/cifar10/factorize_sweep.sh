@@ -4,9 +4,10 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
+export TIMM_FUSED_ATTN=0 # so FLOPs are counted correctly
 
 
-
+: << a
 python "${SCRIPT_DIR}/factorize_sweep.py" \
   --model_name vit_tiny_patch16_224 \
   --pretrained_path "${ROOT_DIR}/models/vit_tiny_cifar10_pretrain.pt" \
@@ -14,12 +15,7 @@ python "${SCRIPT_DIR}/factorize_sweep.py" \
   --mode energy \
   --seed 0
 
-python "${SCRIPT_DIR}/factorize_sweep.py" \
-  --model_name vit_tiny_patch16_224 \
-  --pretrained_path "${ROOT_DIR}/models/vit_tiny_cifar10_regularized.pt" \
-  --results_dir "${ROOT_DIR}/results/vit_tiny_patch16_224/factorized_posttrain_regularized/energy" \
-  --mode energy \
-  --seed 0
+
 
 # flops auto
 python "${SCRIPT_DIR}/factorize_sweep.py" \
@@ -28,12 +24,20 @@ python "${SCRIPT_DIR}/factorize_sweep.py" \
   --results_dir "${ROOT_DIR}/results/vit_tiny_patch16_224/factorized_posttrain_pretrain/flops_auto" \
   --mode flops_auto \
   --seed 0
+a
 
 python "${SCRIPT_DIR}/factorize_sweep.py" \
   --model_name vit_tiny_patch16_224 \
   --pretrained_path "${ROOT_DIR}/models/vit_tiny_cifar10_regularized.pt" \
   --results_dir "${ROOT_DIR}/results/vit_tiny_patch16_224/factorized_posttrain_regularized/flops_auto" \
   --mode flops_auto \
+  --seed 0
+
+python "${SCRIPT_DIR}/factorize_sweep.py" \
+  --model_name vit_tiny_patch16_224 \
+  --pretrained_path "${ROOT_DIR}/models/vit_tiny_cifar10_regularized.pt" \
+  --results_dir "${ROOT_DIR}/results/vit_tiny_patch16_224/factorized_posttrain_regularized/energy" \
+  --mode energy \
   --seed 0
 
 
