@@ -171,3 +171,5 @@ tfg/
 results/
 
 models/
+
+wandb/
