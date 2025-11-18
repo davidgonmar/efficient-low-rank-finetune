@@ -21,6 +21,8 @@ from peft import LoraConfig, get_peft_model
 
 from lib.regularizer import low_rank_reg_loss
 
+import wandb
+
 
 def tokenize_function_factory(tokenizer, max_length):
     def fn(examples):
@@ -38,32 +40,30 @@ class LoRaNuclearRegCallback(TrainerCallback):
     def __init__(self, reg_lambda: float = 1e-1, eps: float = 1e-12):
         self.reg_lambda = reg_lambda
         self.eps = eps
+        self.last_reg_loss = None
 
     def on_pre_optimizer_step(self, args, state, control, **kwargs):
         model = kwargs["model"]
-        reg_loss = low_rank_reg_loss(
-            model, self.eps, self.reg_lambda
-        )  # implicitly does bw
+        reg_loss = low_rank_reg_loss(model, self.eps, self.reg_lambda)
 
         if hasattr(reg_loss, "item"):
-            reg_loss = reg_loss.item()
-        self.last_reg_loss = reg_loss
+            reg_loss_value = reg_loss.item() / self.reg_lambda
+        else:
+            reg_loss_value = reg_loss / self.reg_lambda
+
+        self.last_reg_loss = reg_loss_value
 
         return control
 
     def on_log(self, args, state, control, logs=None, **kwargs):
-        # logs is the dict Trainer is about to print / send to loggers
         if logs is not None and self.last_reg_loss is not None:
             logs["reg_loss"] = self.last_reg_loss
+        if wandb.run is not None:
+            wandb.log({"reg_loss": self.last_reg_loss}, step=state.global_step)
         return control
 
 
 class SaveLatestMergedCallback(TrainerCallback):
-    """
-    Overwrite `merged_output_dir` with the latest merged model AND tokenizer on each save trigger.
-    No step subfolders. Uses temp dir + atomic replace to avoid partial writes.
-    """
-
     def __init__(
         self,
         merged_output_dir: str,
@@ -76,17 +76,14 @@ class SaveLatestMergedCallback(TrainerCallback):
         os.makedirs(self.merged_output_dir, exist_ok=True)
 
     def _save_merged_copy(self, peft_model):
-        # Work on a CPU clone so we don't mutate the live training model
         clone = copy.deepcopy(peft_model).to("cpu")
-        merged = clone.merge_and_unload()  # merges LoRA into base weights on the clone
+        merged = clone.merge_and_unload()
 
         parent = os.path.dirname(os.path.abspath(self.merged_output_dir)) or "."
         with tempfile.TemporaryDirectory(dir=parent) as tmpdir:
-            # Write model + tokenizer into the same temp dir
             merged.save_pretrained(tmpdir)
             self.tokenizer.save_pretrained(tmpdir)
 
-            # Replace target dir atomically (on same filesystem)
             if os.path.exists(self.merged_output_dir):
                 shutil.rmtree(self.merged_output_dir)
             os.rename(tmpdir, self.merged_output_dir)
@@ -133,13 +130,25 @@ def parse_args():
         default="q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj",
     )
     p.add_argument("--resume", action="store_true")
+    p.add_argument("--wandb_project", type=str, default="lora-opt-reg")
+    p.add_argument("--wandb_run_name", type=str, default=None)
+    p.add_argument(
+        "--wandb_mode",
+        type=str,
+        default="online",
+        choices=["online", "offline", "disabled"],
+    )
     return p.parse_args()
 
 
 def main():
     args = parse_args()
 
-    # Dataset
+    os.environ["WANDB_PROJECT"] = args.wandb_project
+    if args.wandb_run_name is not None:
+        os.environ["WANDB_RUN_NAME"] = args.wandb_run_name
+    os.environ["WANDB_MODE"] = args.wandb_mode
+
     if args.dataset_config:
         dataset = load_dataset(args.dataset_name, args.dataset_config)
     else:
@@ -152,7 +161,6 @@ def main():
             validation=split["test"],
         )
 
-    # Tokenizer: use fast + explicit legacy=False to avoid legacy warning
     tokenizer = AutoTokenizer.from_pretrained(
         args.model_name,
         use_fast=True,
@@ -166,21 +174,18 @@ def main():
         batched=True,
         remove_columns=["text"],
     )
-
-    # args.resume = True
+    #args.resume=True
     model_name_or_path = (
         args.merged_output_dir
         if args.resume and os.path.isdir(args.merged_output_dir)
         else args.model_name
     )
 
-    # Base model
     model = AutoModelForCausalLM.from_pretrained(
         model_name_or_path,
         torch_dtype=torch.bfloat16 if args.bf16 else None,
     )
 
-    # LoRA config
     peft_config = LoraConfig(
         r=args.lora_r,
         lora_alpha=args.lora_alpha,
@@ -192,7 +197,6 @@ def main():
 
     model = get_peft_model(model, peft_config, autocast_adapter_dtype=False)
 
-    # Disable HF's own checkpoint saving (we'll save only merged via our callback)
     training_args = TrainingArguments(
         output_dir=args.output_dir,
         per_device_train_batch_size=args.per_device_train_batch_size,
@@ -200,14 +204,16 @@ def main():
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         num_train_epochs=args.num_train_epochs,
         learning_rate=args.learning_rate,
-        lr_scheduler_type="constant",  # <- constant LR (no decay)
-        warmup_steps=0,  # ensure no warmup
-        save_strategy="no",  # no adapter checkpoints
-        save_steps=args.save_steps,  # used only by our callback
+        lr_scheduler_type="constant",
+        warmup_steps=0,
+        save_strategy="no",
+        save_steps=args.save_steps,
         save_total_limit=args.save_total_limit,
         logging_steps=args.logging_steps,
         bf16=args.bf16,
         push_to_hub=args.push_to_hub,
+        report_to=["wandb"],
+        run_name=args.wandb_run_name,
     )
 
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
@@ -230,7 +236,6 @@ def main():
 
     trainer.train()
 
-    # Final merged save (overwrite same dir, no step suffix)
     merged = copy.deepcopy(model).merge_and_unload()
     merged.save_pretrained(args.merged_output_dir)
     tokenizer.save_pretrained(args.merged_output_dir)

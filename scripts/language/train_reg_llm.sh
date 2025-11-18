@@ -24,19 +24,20 @@ python "${SCRIPT_DIR}/train_reg_llm.py" \
   --output_dir "${ADAPTER_DIR}" \
   --merged_output_dir "${MERGED_DIR}" \
   --num_train_epochs 5 \
-  --learning_rate 1e-4 \
+  --learning_rate 5e-5 \
   --per_device_train_batch_size 1 \
   --per_device_eval_batch_size 1 \
   --gradient_accumulation_steps 32 \
   --lora_r 32 \
   --lora_alpha 64 \
   --lora_dropout 0.00 \
-  --reg_lambda 0.00005 \
+  --reg_lambda 0.0001 \
   --target_modules "q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj" \
   --save_steps 200 \
   --save_total_limit 1 \
   --logging_steps 50 \
-  --bf16
+  --bf16 \
+  --wandb_project efficient-low-rank-finetune
 
 
 echo ""
