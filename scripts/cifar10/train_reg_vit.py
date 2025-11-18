@@ -1,5 +1,7 @@
 import time
 import argparse
+from pathlib import Path
+
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
@@ -37,6 +39,7 @@ def parse_args():
     p.add_argument("--samples_per_epoch", type=int, default=100000000)
     p.add_argument("--wandb_project", type=str, default="cifar10-vit-regularized")
     p.add_argument("--wandb_run_name", type=str, default=None)
+    p.add_argument("--resume", action="store_true")
     return p.parse_args()
 
 
@@ -112,7 +115,32 @@ def main():
     model = timm.create_model(args.model_name, pretrained=True, num_classes=10).to(
         device
     )
-    model.load_state_dict(torch.load(args.pretrained_path))
+
+    resume_loaded = False
+    args.resume = True
+    if args.resume:
+        save_path = Path(args.save_path)
+        if save_path.is_file():
+            state = torch.load(str(save_path), map_location=device)
+            model.load_state_dict(state)
+            resume_loaded = True
+            print(f"loaded checkpoint from {save_path}")
+        else:
+            print(
+                f"no checkpoint found at {save_path}, starting from pretrained weights"
+            )
+
+    if not resume_loaded:
+        pretrained_path = Path(args.pretrained_path)
+        if pretrained_path.is_file():
+            state = torch.load(str(pretrained_path), map_location=device)
+            model.load_state_dict(state)
+            print(f"loaded pretrained weights from {pretrained_path}")
+        else:
+            raise FileNotFoundError(
+                f"pretrained weights not found at {pretrained_path}"
+            )
+
     model.to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.wd)
 
@@ -134,7 +162,10 @@ def main():
             optimizer.zero_grad(set_to_none=True)
             logits = model(x)
             loss = F.cross_entropy(logits, y)
-            regloss = low_rank_reg_loss(model, reg_lambda=args.reg_lambda)
+            regloss = low_rank_reg_loss(
+                model,
+                reg_lambda=args.reg_lambda,
+            )
             (loss).backward()
             optimizer.step()
             loss_sum += loss.item() * y.size(0)
@@ -160,7 +191,8 @@ def main():
                 "time": elapsed,
             }
         )
-        torch.save(model.state_dict(), args.save_path)
+        if val_acc >= 0.9:
+            torch.save(model.state_dict(), args.save_path)
     wandb.finish()
 
 

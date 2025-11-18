@@ -20,4 +20,4 @@ python "${SCRIPT_DIR}/train_reg_vit.py" \
   --pretrained_path "${ROOT_DIR}/models/vit_tiny_cifar10_pretrain.pt" \
   --seed 0 \
   --epochs 100 \
-  --reg_lambda 0.001
+  --reg_lambda 0.0003

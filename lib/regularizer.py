@@ -77,6 +77,6 @@ def low_rank_reg_loss(model, eps: float = 1e-12, reg_lambda=0.01):
             W = W.reshape(W.shape[0], -1)
         loss_ = (low_rank_reg(W, eps=eps) ** 2) * reg_lambda
         loss_.backward()
-        loss += loss_.detach().item()
+        loss += loss_.detach().item() / reg_lambda
 
     return loss
