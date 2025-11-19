@@ -45,12 +45,22 @@ def low_rank_reg(W: torch.Tensor, eps: float = 1e-12) -> torch.Tensor:
     return LowRankRegularizer.apply(W, eps)
 
 
-def low_rank_reg_loss(model, eps: float = 1e-12, reg_lambda=0.01):
+# todo update for nonllms
+def low_rank_reg_loss(
+    model,
+    eps: float = 1e-12,
+    reg_lambda=0.01,
+    do=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+):
     # return 0.0
+    # print(model)
     loss = 0.0
-    for m in model.modules():
+    for name, m in model.named_modules():
         w = getattr(m, "weight", None)
         if w is None or not isinstance(w, torch.Tensor) or w.dim() < 2:
+            continue
+
+        if not any([name.endswith(d) for d in do]):
             continue
 
         lora_A = getattr(getattr(m, "lora_A", None), "default", None)
@@ -75,6 +85,8 @@ def low_rank_reg_loss(model, eps: float = 1e-12, reg_lambda=0.01):
 
         if W.ndim == 4:
             W = W.reshape(W.shape[0], -1)
+        if not W.requires_grad:
+            raise ValueError()
         loss_ = (low_rank_reg(W, eps=eps) ** 2) * reg_lambda
         loss_.backward()
         loss += loss_.detach().item() / reg_lambda
