@@ -87,7 +87,8 @@ def low_rank_reg_loss(
             W = W.reshape(W.shape[0], -1)
         if not W.requires_grad:
             raise ValueError()
-        loss_ = (low_rank_reg(W, eps=eps) ** 2) * reg_lambda
+
+        loss_ = (low_rank_reg(W, eps=eps)) * reg_lambda
         loss_.backward()
         loss += loss_.detach().item() / reg_lambda
 

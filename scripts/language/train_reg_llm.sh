@@ -18,8 +18,8 @@ mkdir -p "$(dirname "${MERGED_DIR}")"
 
 python "${SCRIPT_DIR}/train_reg_llm.py" \
   --model_name "${MODEL_IN}" \
-  --dataset_name "tatsu-lab/alpaca" \
-  --dataset_config "" \
+  --dataset_name wikitext \
+  --dataset_config wikitext-2-raw-v1 \
   --max_length 512 \
   --output_dir "${ADAPTER_DIR}" \
   --merged_output_dir "${MERGED_DIR}" \
@@ -31,7 +31,7 @@ python "${SCRIPT_DIR}/train_reg_llm.py" \
   --lora_r 32 \
   --lora_alpha 64 \
   --lora_dropout 0.00 \
-  --reg_lambda 0.0001 \
+  --reg_lambda 0.01 \
   --target_modules "q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj" \
   --save_steps 200 \
   --save_total_limit 1 \
