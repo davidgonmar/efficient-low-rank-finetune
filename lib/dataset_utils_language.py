@@ -135,15 +135,21 @@ def get_test(name, tokenizer, seqlen=2048):
 
 @torch.no_grad()
 def test_ppl(model, tokenizer, datasets=["wikitext2"], ppl_seqlen=2048):
+    import torch.nn as nn
+
     results = {}
     for dataset in datasets:
         testenc = get_test(dataset, tokenizer, ppl_seqlen)
         seqlen = ppl_seqlen
         nsamples = testenc.numel() // seqlen
+
         use_cache = model.config.use_cache
         model.config.use_cache = False
         model.eval()
+
         nlls = []
+        skipped = 0
+
         if hasattr(model, "lm_head") and isinstance(model.lm_head, nn.Linear):
             classifier = model.lm_head
         elif hasattr(model.model, "lm_head"):
@@ -152,30 +158,51 @@ def test_ppl(model, tokenizer, datasets=["wikitext2"], ppl_seqlen=2048):
             classifier = model.output
         else:
             raise NotImplementedError
+
         for i in tqdm(range(nsamples)):
             batch = (
                 testenc[(i * seqlen) : ((i + 1) * seqlen)]
                 .to(model.device)
                 .reshape(1, -1)
             )
+
             outputs = model.model(batch)
             if classifier is not None:
                 hidden_states = outputs[0]
                 logits = classifier(hidden_states.to(classifier.weight.dtype))
             else:
                 logits = outputs[0]
+
+            if not torch.isfinite(logits).all():
+                skipped += 1
+                continue
+
             shift_logits = logits[:, :-1, :]
             shift_labels = testenc[(i * seqlen) : ((i + 1) * seqlen)][1:].to(
                 shift_logits.device
             )
+
             loss_fct = nn.CrossEntropyLoss()
             loss = loss_fct(
                 shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)
             )
+
+            if not torch.isfinite(loss):
+                skipped += 1
+                continue
+
             neg_log_likelihood = loss.float() * seqlen
             nlls.append(neg_log_likelihood)
-        ppl = torch.exp(torch.stack(nlls).sum() / (nsamples * seqlen))
-        print(f"{dataset}:{ppl}")
+
+        if len(nlls) == 0:
+            raise RuntimeError(
+                f"All chunks were non-finite for dataset {dataset}. "
+                f"Skipped {skipped}/{nsamples} chunks."
+            )
+
+        ppl = torch.exp(torch.stack(nlls).sum() / (len(nlls) * seqlen))
+        print(f"{dataset}: {ppl} (skipped {skipped}/{nsamples} chunks)")
         results[dataset] = ppl.item()
+
     model.config.use_cache = use_cache
     return results

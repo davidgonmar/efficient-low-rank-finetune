@@ -5,7 +5,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
-MODEL_IN="Qwen/Qwen2.5-7B-Instruct"
+MODEL_IN="meta-llama/Llama-2-7b-hf"
 
 
 MODEL_BASENAME="$(basename "${MODEL_IN}")"
@@ -18,8 +18,8 @@ mkdir -p "$(dirname "${MERGED_DIR}")"
 
 python "${SCRIPT_DIR}/train_reg_llm.py" \
   --model_name "${MODEL_IN}" \
-  --dataset_name wikitext \
-  --dataset_config wikitext-2-raw-v1 \
+    --dataset_name DKYoon/SlimPajama-6B \
+    --dataset_config default \
   --max_length 512 \
   --output_dir "${ADAPTER_DIR}" \
   --merged_output_dir "${MERGED_DIR}" \
@@ -38,7 +38,6 @@ python "${SCRIPT_DIR}/train_reg_llm.py" \
   --logging_steps 50 \
   --bf16 \
   --wandb_project efficient-low-rank-finetune
-
 
 echo ""
 echo "Regularized FINAL model saved to:"

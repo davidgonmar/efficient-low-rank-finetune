@@ -198,7 +198,7 @@ def decompose_params(w: torch.Tensor):
     """
     assert w.device.type == "cuda", "Weights must be on GPU for SVD"
     U, S, V_T = torch.linalg.svd(w.float(), full_matrices=False)  # complete SVD
-    return U.to(w.dtype), S.to(w.dtype), V_T.to(w.dtype)
+    return U, S, V_T
 
 
 def crop_svd(U, S, V_T, rank):
@@ -246,18 +246,22 @@ def obtain_whitening_matrix(
     acts: torch.Tensor,
     module: nn.Module,
 ):
+    assert acts.dtype == torch.float32
     # acts of shape (G, D, D), where G is the group dimension
     # Cusolver sometimes fails on well-conditioned matrices, set to magma instead
-    torch.backends.cuda.preferred_linalg_library("magma")
+    # torch.backends.cuda.preferred_linalg_library("magma")
+    # print(acts.shape, acts.device)
     try:
+        # print("start")
         eigenvalues, eigenvectors = torch.linalg.eigh(
             acts.cuda().float()
         )  # acts might be in lower precision
+        # print("end")
     # on big matrices, eigh might fail (only on very big models, and very sporadic)
     except RuntimeError:
-        eigenvalues, eigenvectors = torch.linalg.eig(acts.cuda())
-        eigenvalues = eigenvalues.real
-        eigenvectors = eigenvectors.real
+        # print("got here")
+        eigenvectors, eigenvalues, Vt = torch.linalg.svd(acts.cuda().float())
+        # print("got here 2")
     x_svals = torch.sqrt(eigenvalues)
     V = eigenvectors
     keep = x_svals > 1e-10  # of shape (G, D)
@@ -279,7 +283,7 @@ def factorize_linear_whitened(
 ):
     W = module.weight.T
     if factors is None:
-        U, S, V_T = decompose_params(data_whitening_matrix_inverse @ W)
+        U, S, V_T = decompose_params(data_whitening_matrix_inverse @ W.float())
     else:
         U, S, V_T = factors
     rank = get_rank(W, U, S, V_T)
@@ -292,7 +296,9 @@ def factorize_linear_whitened(
     V_T = V_T[0]
     data_whitening_matrix = data_whitening_matrix[0]
     W0, W1 = get_factors(U, S, V_T)  # shape (in, rank), (out, rank)
+    W0, W1 = W0, W1
     W0 = data_whitening_matrix @ W0
+    W0, W1 = W0.to(W.dtype), W1.to(W.dtype)
     low_rank_linear = (
         LowRankLinear(
             module.in_features,
@@ -326,7 +332,7 @@ def factorize_conv2d_whitened(
     # data_whitening_matrix_inverse of shape (G, D', D')
     # where D' = C_i_by_grp * H_k * W_k
     if factors is None:
-        U, S, V_T = decompose_params(data_whitening_matrix_inverse @ reshaped)
+        U, S, V_T = decompose_params(data_whitening_matrix_inverse @ reshaped.float())
     else:
         U, S, V_T = factors
     rank = get_rank(reshaped, U, S, V_T)
@@ -341,6 +347,7 @@ def factorize_conv2d_whitened(
     W0 = data_whitening_matrix @ W0
     W1 = W1.permute(0, 2, 1).reshape(C_o, rank, 1, 1)
     W0 = W0.transpose(-1, -2).reshape(groups * rank, C_i_grp, H_k, W_k)
+    W0, W1 = W0.to(W.dtype), W1.to(W.dtypwe)
     low_rank_conv2d = (
         LowRankConv2d(
             module.in_channels,
@@ -409,11 +416,12 @@ def collect_activation_cache(model: nn.Module, data, keys):
     length = len(data.dataset)
     mods = gather_submodules(model, should_do=keys_passlist_should_do(keys))
     device = next(model.parameters()).device
+    model_dtype = next(model.parameters()).dtype
     acts, outs, hooks, inner_dim_count = {}, {}, [], {}
 
     def fn(n, m, inp, out):
         x = inp[0] if isinstance(inp, tuple) else inp
-        a = _process_act(x.detach(), m)
+        a = _process_act(x.detach(), m).float()
         if acts.get(n) is None:
             acts[n] = torch.zeros(
                 a.shape[0], a.shape[2], a.shape[2], device=device, dtype=a.dtype
@@ -543,12 +551,13 @@ def to_low_rank_activation_aware_auto(
             U, S, V_T = _load_fac(name)
         else:
             reshaped = get_reshape(module)(module.weight.detach())
-            aa = whitinv @ reshaped
+            aa = whitinv @ reshaped.float()
             assert reshaped.device.type == "cuda"
             U, S, V_T = torch.linalg.svd(aa, full_matrices=False)
             _save_fac(name, (U.cpu(), S.cpu(), V_T.cpu()))
 
-        energy = torch.cumsum((S**2), 1).sum(0)
+        energy = torch.cumsum((S.detach() ** 2), 1).sum(0)
+
         energy = energy / energy[-1]
         cum_energies.append(energy)
 
@@ -556,6 +565,10 @@ def to_low_rank_activation_aware_auto(
         out_shapes.append(outs[name])
 
         torch.cuda.empty_cache()
+        mem_bytes = torch.cuda.memory_allocated()
+        mem_mb = mem_bytes / (1024**2)
+        # print(f"{mem_mb:.2f} MB")
+        # print("RESERVED", torch.cuda.memory_reserved() / 1024**2)
 
     torch.cuda.synchronize()
     time_end_factorization_and_whitening = time.perf_counter()

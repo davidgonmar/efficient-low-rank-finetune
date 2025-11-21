@@ -52,7 +52,7 @@ model = (
     .to(device)
     .eval()
 )
-
+print(model)
 ppl_orig = test_ppl(
     model,
     tok,
@@ -66,12 +66,12 @@ eval_raw_orig = evaluator.simple_evaluate(
     HFLM(model, batch_size=16),
     tasks=eval_tasks,
     batch_size=args.batch_size,
-    limit=128,
 )
 eval_results_orig = {t: eval_raw_orig["results"][t]["acc,none"] for t in eval_tasks}
 print("[original]", eval_results_orig)
 
 all_keys = get_all_convs_and_linears(model)
+
 skip_re = re.compile(r"(embed_tokens|embed_positions|lm_head)")
 layer_keys = [k for k in all_keys if not skip_re.search(k)]
 
@@ -102,6 +102,8 @@ activation_cache = maybe_retrieve_activation_cache(
     dataloader=train_dl,
     keys=layer_keys,
 )
+
+print("got activation cache!")
 
 base_dir = Path(args.results_dir)
 base_dir.mkdir(parents=True, exist_ok=True)
@@ -173,7 +175,6 @@ for k in (
         lm,
         tasks=eval_tasks,
         batch_size=args.batch_size,
-        limit=128,
     )
     eval_results_lr = {t: eval_raw_lr["results"][t]["acc,none"] for t in eval_tasks}
     print(eval_results_lr)
